@@ -1,8 +1,5 @@
 #!/bin/bash
 
-#SBATCH -t 12:00:00
-#SBATCH -o none
-
 if [ ! -d "${HOME:-~}.ssh" ]; then
     mkdir -p ${HOME:-~}/.ssh
 fi
