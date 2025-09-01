@@ -166,8 +166,13 @@ function ssh_connect () {
 function connect () {
     query_sge
 
+    echo JOB_STATE: $JOB_STATE
+
     if [ -z "${JOB_STATE}" ]; then
         PORT=$(shuf -i 10000-65000 -n 1)
+
+        echo $SGE_PARAM
+        echo $PORT
 
         list=($(qsub -terse -N ${JOB_NAME}_$PORT $SGE_PARAM $SCRIPT_DIR/vscode-remote-job.sh $PORT 2>/dev/null))
         # qsub -terse returns the job id on a single line
