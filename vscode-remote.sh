@@ -4,8 +4,8 @@
 # Tip: mirror what you'd pass to qsub/qlogin. For example, for a GPU session you use:
 #   qlogin -q gpu -l gpu=N -pe sharedmem M -l h='node3c01'
 # Then set SGE_PARAM_GPU accordingly (e.g. "-q gpu -l gpu=1 -pe sharedmem 8 -l h=node3c01").
-SGE_PARAM_CPU="-q gpu -l h='node3c01' -o /dev/null -e /dev/null"
-SGE_PARAM_GPU="-q gpu -l h='node3c01' -o /dev/null -e /dev/null"
+SGE_PARAM_CPU="-q gpu -l h=node3c01 -o /dev/null -e /dev/null"
+SGE_PARAM_GPU="-q gpu -l h=node3c01 -o /dev/null -e /dev/null"
 
 # The time you expect a job to start in (seconds)
 # If a job doesn't start within this time, the script will exit and cancel the pending job
@@ -174,10 +174,19 @@ function connect () {
         echo $SGE_PARAM
         echo $PORT
 
-        list=($(qsub -terse -N ${JOB_NAME}_$PORT $SGE_PARAM $SCRIPT_DIR/vscode-remote-job.sh $PORT 2>/dev/null))
-        # qsub -terse returns the job id on a single line
-        JOB_SUBMIT_ID=${list[0]}
-        >&2 echo "Submitted new $JOB_NAME job (id: ${JOB_SUBMIT_ID:-unknown})"
+        submit_out="$(qsub -terse -N "${JOB_NAME}_$PORT" $SGE_PARAM "$SCRIPT_DIR/vscode-remote-job.sh" "$PORT" 2>&1)"
+        rc=$?
+        if [ $rc -ne 0 ]; then
+            >&2 echo "qsub failed ($rc): $submit_out"
+            exit 1
+        fi
+        # qsub -terse prints the job id on the first line (e.g. 50641103 or 50641103.1)
+        JOB_SUBMIT_ID="$(printf "%s\n" "$submit_out" | head -n1 | sed -n 's/^\([0-9][0-9]*\(\.[0-9][0-9]*\)\?\).*$/\1/p')"
+        if [ -z "$JOB_SUBMIT_ID" ]; then
+            >&2 echo "Unexpected qsub output: $submit_out"
+            exit 1
+        fi
+        >&2 echo "Submitted new $JOB_NAME job (id: $JOB_SUBMIT_ID)"
     fi
 
     # In SGE, running state is typically 'r'
