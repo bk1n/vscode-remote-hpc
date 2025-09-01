@@ -4,8 +4,8 @@
 # Tip: mirror what you'd pass to qsub/qlogin. For example, for a GPU session you use:
 #   qlogin -q gpu -l gpu=N -pe sharedmem M -l h='node3c01'
 # Then set SGE_PARAM_GPU accordingly (e.g. "-q gpu -l gpu=1 -pe sharedmem 8 -l h=node3c01").
-SGE_PARAM_CPU="-q gpu -l gpu=N -pe sharedmem M -l h='node3c01' -o /dev/null -e /dev/null"
-SGE_PARAM_GPU="-q gpu -l gpu=N -pe sharedmem M -l h='node3c01' -o /dev/null -e /dev/null"
+SGE_PARAM_CPU="-q gpu -l h='node3c01' -o /dev/null -e /dev/null"
+SGE_PARAM_GPU="-q gpu -l h='node3c01' -o /dev/null -e /dev/null"
 
 # The time you expect a job to start in (seconds)
 # If a job doesn't start within this time, the script will exit and cancel the pending job
@@ -168,6 +168,7 @@ function connect () {
 
     if [ -z "${JOB_STATE}" ]; then
         PORT=$(shuf -i 10000-65000 -n 1)
+
         list=($(qsub -terse -N ${JOB_NAME}_$PORT $SGE_PARAM $SCRIPT_DIR/vscode-remote-job.sh $PORT 2>/dev/null))
         # qsub -terse returns the job id on a single line
         JOB_SUBMIT_ID=${list[0]}
