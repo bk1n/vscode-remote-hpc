@@ -9,7 +9,7 @@ SGE_PARAM_GPU="-q gpu -l gpu=1,mem_free=32G -pe sharedmem 8"
 
 # The time you expect a job to start in (seconds)
 # If a job doesn't start within this time, the script will exit and cancel the pending job
-TIMEOUT=300
+TIMEOUT=15
 
 
 ####################
@@ -43,11 +43,20 @@ function usage ()
 } 
 
 function query_sge () {
-    # Query SGE for jobs matching $JOB_NAME (prefix), capture first match
-    # Expected qstat columns: job-ID prior name user state submit/start at queue slots ja-task-ID
+    # Robustly query SGE using XML output so we get the full job name (qstat truncates the text view).
+    # We match jobs whose full name begins with $JOB_NAME (e.g. vscode-remote-gpu_12345).
     local line
-    line=$(qstat -u "$USER" 2>/dev/null | awk -v name="$JOB_NAME" 'NR>2 && index($3, name)==1 {print $1" "$3" "$5" "$8; exit}')
-
+    line=$(qstat -u "$USER" -xml 2>/dev/null | awk -v name="$JOB_NAME" '
+        /<job_list /       { injob=1; id=""; nm=""; st=""; q=""; next }
+        injob && /<JB_job_number>/ { sub(".*<JB_job_number>",""); sub("</JB_job_number>.*",""); id=$0; next }
+        injob && /<JB_name>/       { sub(".*<JB_name>","");       sub("</JB_name>.*","");       nm=$0; next }
+        injob && /<state>/         { sub(".*<state>","");         sub("</state>.*","");         st=$0; next }
+        injob && /<queue_name>/    { sub(".*<queue_name>","");    sub("</queue_name>.*","");    q=$0; next }
+        injob && /<\/job_list>/ {
+            if (index(nm, name)==1) { print id" "nm" "st" "q; exit }
+            injob=0
+        }
+    ')
     if [ -n "$line" ]; then
         read -r JOB_ID JOB_FULLNAME JOB_STATE JOB_QUEUE <<< "$line"
 
@@ -60,8 +69,7 @@ function query_sge () {
         fi
 
         # Our job name encodes the port as NAME_PORT (underscore as separator)
-        split=(${JOB_FULLNAME//_/ })
-        JOB_PORT=${split[1]}
+        IFS='_' read -r _ JOB_PORT <<< "$JOB_FULLNAME"
 
         >&2 echo "Job is $JOB_STATE ( id: $JOB_ID, name: $JOB_FULLNAME${JOB_NODE:+, node: $JOB_NODE} )"
     else
@@ -100,7 +108,18 @@ function cancel () {
 }
 
 function list () {
-    echo "$(qstat -u "$USER" | awk -v name="$JOB_NAME" 'NR<=2 || index($3,name)==1')"
+    # Use XML so names aren’t truncated in the listing either.
+    qstat -u "$USER" -xml 2>/dev/null | awk -v name="$JOB_NAME" '
+        /<job_list /       { injob=1; id=""; nm=""; st=""; q=""; next }
+        injob && /<JB_job_number>/ { sub(".*<JB_job_number>",""); sub("</JB_job_number>.*",""); id=$0; next }
+        injob && /<JB_name>/       { sub(".*<JB_name>","");       sub("</JB_name>.*","");       nm=$0; next }
+        injob && /<state>/         { sub(".*<state>","");         sub("</state>.*","");         st=$0; next }
+        injob && /<queue_name>/    { sub(".*<queue_name>","");    sub("</queue_name>.*","");    q=$0; next }
+        injob && /<\/job_list>/ {
+            if (index(nm, name)==1) printf "%s %s %s %s\n", id, st, nm, q
+            injob=0
+        }
+    '
 }
 
 function ssh_connect () {
@@ -160,6 +179,7 @@ function connect () {
         timeout
         sleep 5
         query_sge
+        echo $JOB_STATE
     done
 
     >&2 echo "Connecting to $JOB_NODE"
@@ -175,6 +195,10 @@ function connect () {
 if [ ! -z "$1" ]; then
     JOB_NAME=vscode-remote
     SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+    echo $JOB_NAME
+    echo $SCRIPT_DIR
+
     START=$(date +%s)
     trap "cleanup && exit 1" INT TERM
     case $1 in
